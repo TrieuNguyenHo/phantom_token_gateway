@@ -1,0 +1,26 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: resource-service
+
+keycloak:
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8088/realms/trieu_universal}
+  jwks-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8088/realms/trieu_universal/protocol/openid-connect/certs}
+
+security:
+  # Must match the aud claim the gateway forwards. Set an audience mapper on the Keycloak
+  # client (or mint a per-service token via RFC 8693) so service A's token is useless at
+  # service B.
+  expected-audience: ${EXPECTED_AUDIENCE:resource-service}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    com.trieu.resource: INFO

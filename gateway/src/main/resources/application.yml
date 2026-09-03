@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: phantom-token-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 200ms          # degraded Redis must fail fast, never hang a request
+  cloud:
+    gateway:
+      routes:
+        - id: resource-service
+          uri: ${RESOURCE_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/resource-service/**
+          filters:
+            - StripPrefix=2
+          # Consumed only by phantom-token.internal-token=EXCHANGE: the RFC 8693 audience this
+          # route's requests get token-exchanged for. Must match a client id in Keycloak, and
+          # the downstream service's security.expected-audience.
+          metadata:
+            audience: resource-service
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 5s
+
+keycloak:
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8088/realms/trieu_universal}
+  introspection-uri: ${KEYCLOAK_INTROSPECTION_URI:http://localhost:8088/realms/trieu_universal/protocol/openid-connect/token/introspect}
+  token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8088/realms/trieu_universal/protocol/openid-connect/token}
+  jwks-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8088/realms/trieu_universal/protocol/openid-connect/certs}
+  client-id: ${KEYCLOAK_CLIENT_ID:gateway}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET:VQG4NKqtWreYl6izuLVfobvN9vFvl4tD}
+
+phantom-token:
+  # KEYCLOAK_JWT = forward the full JWT that Keycloak returns for Accept: application/jwt
+  #                (needs the JWT-introspection-response attribute on the gateway's client).
+  # ORIGINAL     = forward the incoming token unchanged.
+  # EXCHANGE     = RFC 8693 token exchange - mint a token audienced to the matched route
+  #                (needs "Standard token exchange" enabled on the gateway's client, and
+  #                each route's metadata.audience set).
+  internal-token: ${PHANTOM_INTERNAL_TOKEN:KEYCLOAK_JWT}
+  positive-ttl-cap: 30s
+  negative-ttl-min: 2s
+  negative-ttl-max: 5s
+  lock-ttl: 3s
+  deny-list-ttl: 5m
+  event-webhook-secret: ${EVENT_WEBHOOK_SECRET:dev-shared-secret}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,gateway
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.trieu.gateway: INFO

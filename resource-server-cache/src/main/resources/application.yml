@@ -1,0 +1,67 @@
+server:
+  # Approach A runs standalone; 8080 belongs to the gateway (approach B).
+  port: 8083
+
+spring:
+  application:
+    name: redis-token-introspection
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 200ms          # a slow/degraded Redis must fail fast, not hang the request
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+
+keycloak:
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/demo}
+  introspection-uri: ${KEYCLOAK_INTROSPECTION_URI:http://localhost:8081/realms/demo/protocol/openid-connect/token/introspect}
+  jwks-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8081/realms/demo/protocol/openid-connect/certs}
+  client-id: ${KEYCLOAK_CLIENT_ID:resource-server}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET:change-me}
+
+# See CacheProperties.java for what each of these controls.
+auth-cache:
+  positive-ttl-cap: 30s
+  negative-ttl-min: 2s
+  negative-ttl-max: 5s
+  lock-ttl: 3s
+  lock-wait-timeout: 500ms
+  lock-poll-interval: 20ms
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      keycloakIntrospection:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50          # open the breaker once half of the last 20 calls fail
+        wait-duration-in-open-state: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+  ratelimiter:
+    instances:
+      keycloakIntrospection:
+        limit-for-period: 200                # cap direct-to-Keycloak calls/sec once Redis is bypassed
+        limit-refresh-period: 1s
+        timeout-duration: 100ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,circuitbreakers,ratelimiters
+  endpoint:
+    health:
+      show-details: when-authorized
+  health:
+    redis:
+      enabled: true
+
+logging:
+  level:
+    com.trieu.authcache: INFO
