@@ -1,4 +1,4 @@
-package com.trieu.gateway.logout;
+package com.trieu.gateway.controller;
 
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
