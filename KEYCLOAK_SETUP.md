@@ -51,18 +51,17 @@ read from docs.
 
 6. Backchannel logout URL on `gateway`: `http://host.docker.internal:8080/backchannel-logout`
 
-## Refresh token reuse
+## Refresh token rotation
 
-By default the same refresh token can be redeemed at `/refresh-token` (`RefreshTokenService`)
-over and over - that's not a gateway bug, it's Keycloak's default. **Revoke Refresh Token**
-(Realm Settings → Tokens tab) is OFF out of the box, so a refresh token stays valid for reuse
-until it simply expires (SSO Session Idle/Max), no rotation.
+Realm Settings → Tokens:
+- **Revoke Refresh Token**: ON.
+- **Refresh Token Max Reuse**: `0` (strict single-use).
 
-To make refresh tokens single-use (rotation - reusing an already-redeemed one gets rejected,
-and per Keycloak's docs can revoke the whole session):
-- Realm Settings → Tokens → **Revoke Refresh Token**: ON.
-- **Refresh Token Max Reuse**: `0` for strict single-use (any value > 0 allows that many
-  extra reuses before rejection).
+Keycloak's factory default is OFF, which lets the same refresh token be redeemed at
+`/refresh-token` (`RefreshTokenService`) over and over until it simply expires (SSO Session
+Idle/Max) - no rotation, and a leaked refresh token stays usable indefinitely. Turned ON above
+and verified end-to-end: reusing an already-redeemed refresh token is rejected by Keycloak
+(`invalid_grant`), which `RefreshTokenService` surfaces as a 401.
 
 This is entirely a Keycloak-side realm setting - the gateway has no opinion here. It only
 forwards `refresh_token` to Keycloak's `/token` endpoint and trusts whatever grant/reject
