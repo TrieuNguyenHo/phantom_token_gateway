@@ -42,7 +42,7 @@ phantom-token:
   # EXCHANGE     = RFC 8693 token exchange - mint a token audienced to the matched route
   #                (needs "Standard token exchange" enabled on the gateway's client, and
   #                each route's metadata.audience set).
-  internal-token: ${PHANTOM_INTERNAL_TOKEN:KEYCLOAK_JWT}
+  internal-token: ${PHANTOM_INTERNAL_TOKEN:EXCHANGE}
   positive-ttl-cap: 30s
   negative-ttl-min: 2s
   negative-ttl-max: 5s

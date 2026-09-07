@@ -1,5 +1,7 @@
 package com.trieu.gateway.logout;
 
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.trieu.gateway.config.KeycloakProperties;
 import com.trieu.gateway.introspection.PhantomTokenCache;
 import lombok.extern.slf4j.Slf4j;
@@ -12,8 +14,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -38,7 +40,20 @@ public class BackchannelLogoutController {
     }
 
     @PostMapping(value = "/backchannel-logout", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public Mono<ResponseEntity<Void>> backchannelLogout(@RequestParam("logout_token") String logoutToken) {
+    public Mono<ResponseEntity<Void>> backchannelLogout(ServerWebExchange exchange) {
+        // WebFlux's @RequestParam only reads the query string, never a form body - unlike
+        // Spring MVC's servlet-backed @RequestParam, which unifies both. exchange.getFormData()
+        // is WebFlux's own dedicated form-body reader, so logout_token must come from there.
+        return exchange.getFormData()
+                .flatMap(form -> {
+                    String logoutToken = form.getFirst("logout_token");
+                    return logoutToken == null
+                            ? Mono.just(ResponseEntity.badRequest().<Void>build())
+                            : verifyAndEvict(logoutToken);
+                });
+    }
+
+    private Mono<ResponseEntity<Void>> verifyAndEvict(String logoutToken) {
         return logoutTokenDecoder.decode(logoutToken)
                 .flatMap(jwt -> {
                     if (!isLogoutEvent(jwt)) {
@@ -77,7 +92,13 @@ public class BackchannelLogoutController {
     static class LogoutTokenDecoderConfig {
         @Bean
         ReactiveJwtDecoder logoutTokenDecoder(KeycloakProperties props) {
-            return NimbusReactiveJwtDecoder.withJwkSetUri(props.jwksUri()).build();
+            return NimbusReactiveJwtDecoder.withJwkSetUri(props.jwksUri())
+                    // Keycloak's logout_token carries typ=logout+jwt, not JWT. Nimbus's default
+                    // type verifier only accepts "JWT" (or no typ), so without this every real
+                    // logout_token fails with BadJwtException: Failed to validate the token.
+                    .jwtProcessorCustomizer(processor -> processor.setJWSTypeVerifier(
+                            new DefaultJOSEObjectTypeVerifier<>(new JOSEObjectType("logout+jwt"))))
+                    .build();
         }
     }
 }

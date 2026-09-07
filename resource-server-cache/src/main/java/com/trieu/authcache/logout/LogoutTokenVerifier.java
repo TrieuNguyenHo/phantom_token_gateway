@@ -1,5 +1,7 @@
 package com.trieu.authcache.logout;
 
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.trieu.authcache.config.KeycloakProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +20,12 @@ public class LogoutTokenVerifier {
 
     @Bean
     public JwtDecoder logoutTokenDecoder(KeycloakProperties props) {
-        return NimbusJwtDecoder.withJwkSetUri(props.jwksUri()).build();
+        return NimbusJwtDecoder.withJwkSetUri(props.jwksUri())
+                // Keycloak's logout_token carries typ=logout+jwt, not JWT. Nimbus's default
+                // type verifier only accepts "JWT" (or no typ), so without this every real
+                // logout_token fails with BadJwtException: Failed to validate the token.
+                .jwtProcessorCustomizer(processor -> processor.setJWSTypeVerifier(
+                        new DefaultJOSEObjectTypeVerifier<>(new JOSEObjectType("logout+jwt"))))
+                .build();
     }
 }

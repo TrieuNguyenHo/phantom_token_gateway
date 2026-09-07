@@ -17,6 +17,19 @@ not a production system.
 
 Both must keep working. **Do not delete approach A** — the comparison is the point.
 
+**"Opaque" here means trust model, not byte structure.** End-user access tokens issued by this
+Keycloak realm are structurally real JWTs (RS256, decodable at jwt.io) — Keycloak has no setting
+that issues non-JWT reference tokens. What makes introspection necessary anyway is that neither
+`resource-server-cache` nor the gateway is allowed to trust its own local decode of that JWT: the
+signature only proves Keycloak once issued it, not that the session is still alive right now
+(revocation/logout isn't reflected in a JWT's own claims). Both approaches therefore treat the
+incoming token as opaque **by policy** — always ask Keycloak, never self-validate — which is
+exactly what Spring Security's `OpaqueTokenIntrospector` (used in `resource-server-cache`) is
+named for. That mandatory round trip is the 200ms this whole lab is about; caching it is the
+point, not working around a token that's technically unparseable. Once the gateway *has* asked
+and gotten a fresh answer, the JWT/EXCHANGE it hands to `resource-service` is safe to self-verify
+downstream, because the real-time check already happened at the gateway boundary.
+
 ## Commands
 
 ```bash
@@ -72,6 +85,26 @@ Ports: gateway 8080 · Keycloak 8081 · resource-service 8082 · resource-server
   This applies to all three `internal-token` strategies, not just `EXCHANGE`.
 - A strict RFC 9701 response is **audienced to the gateway** — it is data, not a credential, and
   must not be forwarded. The parser deliberately leaves `forwardableJwt` null in that case.
+- Keycloak has **no per-client "Access Token Type: JWT/Opaque" toggle** — access tokens (including
+  exchanged ones) are always structurally JWTs. Confirmed on a real 26.7 instance: the client's
+  Advanced tab only has "Always use lightweight access token", nothing named Access Token Type.
+  Don't chase that setting name if a token "looks opaque" — decode it (jwt.io, or
+  `cut -d. -f2 | base64 -d`) before assuming it isn't a JWT.
+- `EXCHANGE` is not made redundant by claim-richness settings like "Always use lightweight access
+  token". Per `docker-compose.yml` step 2, that flag lives on the **calling** client (`gateway`),
+  not on the audience/target client (`resource-service`) — toggling it on the target is a no-op
+  for the exchange path. Regardless of claim richness, `KEYCLOAK_JWT`'s `forwardableJwt` is
+  minted for the *original* audience (`IntrospectionResponseParser`), so the same JWT goes out to
+  every route the gateway proxies to. `EXCHANGE` is the only strategy that narrows `aud` to the
+  one client matching the current route, so a token leaked from one downstream service is
+  useless against another.
+- `IntrospectionClient` and `TokenExchangeClient` both authenticate as the *same* `gateway`
+  client (`KeycloakProperties.clientId/clientSecret`) — there is no separate "exchange client".
+  The second client, `resource-service` (`docker-compose.yml` step 3), exists only to be *named*
+  as `audience=...` in the exchange request; it never itself calls Keycloak, needs no service
+  account, and each additional downstream service needs one of these plus its own
+  audience-mapper client scope assigned as a default scope on `gateway` (step 4) — not a second
+  caller credential.
 
 ## Known gaps / backlog
 
